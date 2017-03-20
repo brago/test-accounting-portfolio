@@ -24,7 +24,7 @@ import io.mifos.core.test.servicestarter.EurekaForTest;
 import io.mifos.core.test.servicestarter.InitializedMicroservice;
 import io.mifos.core.test.servicestarter.IntegrationTestEnvironment;
 import io.mifos.portfolio.api.v1.client.PortfolioManager;
-import io.mifos.accounting.api.v1.client.AccountingService;
+import io.mifos.accounting.api.v1.client.LedgerManager;
 import io.mifos.portfolio.api.v1.domain.Pattern;
 import org.junit.*;
 import org.junit.rules.RuleChain;
@@ -63,7 +63,7 @@ public class IndividualLoanTransactionProcessing {
   private final static MariaDBInitializer mariaDBInitializer = new MariaDBInitializer();
   private final static IntegrationTestEnvironment integrationTestEnvironment = new IntegrationTestEnvironment(cassandraInitializer, mariaDBInitializer);
 
-  private final static InitializedMicroservice<AccountingService> thoth = new InitializedMicroservice<>(AccountingService.class, "accounting", "0.1.0-BUILD-SNAPSHOT", integrationTestEnvironment);
+  private final static InitializedMicroservice<LedgerManager> thoth = new InitializedMicroservice<>(LedgerManager.class, "accounting", "0.1.0-BUILD-SNAPSHOT", integrationTestEnvironment);
   private final static InitializedMicroservice<PortfolioManager> bastet= new InitializedMicroservice<>(PortfolioManager.class, "portfolio", "0.1.0-BUILD-SNAPSHOT", integrationTestEnvironment);
 
   @ClassRule
