@@ -22,7 +22,8 @@ ext.versions = [
         frameworkapi            : '0.1.0-BUILD-SNAPSHOT',
         mifosaccounting         : '0.1.0-BUILD-SNAPSHOT',
         mifosportfolio          : '0.1.0-BUILD-SNAPSHOT',
-        validator             : '5.3.0.Final'
+        validator               : '5.3.0.Final',
+        springcontext           : '4.3.3.RELEASE',
 ]
 
 apply plugin: 'java'
@@ -64,6 +65,7 @@ dependencies {
             [group: 'io.mifos.core', name: 'test', version: versions.frameworktest],
             [group: 'io.mifos', name: 'service-starter', version: versions.frameworkservicestarter],
             [group: 'org.springframework.boot', name: 'spring-boot-starter-test'],
+            [group: 'org.springframework', name: 'spring-jms', version: versions.springcontext],
     )
 }
 
@@ -76,4 +78,6 @@ license {
         yml = 'SCRIPT_STYLE'
         yaml = 'SCRIPT_STYLE'
     }
+    ext.year = Calendar.getInstance().get(Calendar.YEAR)
+    ext.name = 'The Mifos Initiative'
 }
