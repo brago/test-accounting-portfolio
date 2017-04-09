@@ -122,7 +122,7 @@ public class IndividualLoanTransactionProcessing {
   @Test
   public void test() throws InterruptedException {
     try (final AutoUserContext ignored = integrationTestEnvironment.createAutoUserContext("blah")) {
-      final List<Pattern> patterns = bastet.api().findAllPatterns();
+      final List<Pattern> patterns = bastet.api().getAllPatterns();
       Assert.assertTrue(patterns != null);
       Assert.assertTrue(patterns.size() >= 1);
       Assert.assertTrue(patterns.get(0) != null);
