@@ -17,12 +17,12 @@ package io.mifos;
 
 import com.google.gson.Gson;
 import io.mifos.accounting.api.v1.client.LedgerManager;
-import io.mifos.accounting.api.v1.domain.Account;
-import io.mifos.accounting.api.v1.domain.AccountType;
-import io.mifos.accounting.api.v1.domain.Ledger;
+import io.mifos.accounting.importer.AccountImporter;
+import io.mifos.accounting.importer.LedgerImporter;
 import io.mifos.core.api.config.EnableApiFactory;
 import io.mifos.core.api.context.AutoUserContext;
 import io.mifos.core.api.util.ApiFactory;
+import io.mifos.core.test.env.ExtraProperties;
 import io.mifos.core.test.fixture.cassandra.CassandraInitializer;
 import io.mifos.core.test.fixture.mariadb.MariaDBInitializer;
 import io.mifos.core.test.listener.EventRecorder;
@@ -30,6 +30,7 @@ import io.mifos.core.test.servicestarter.ActiveMQForTest;
 import io.mifos.core.test.servicestarter.EurekaForTest;
 import io.mifos.core.test.servicestarter.InitializedMicroservice;
 import io.mifos.core.test.servicestarter.IntegrationTestEnvironment;
+import io.mifos.individuallending.api.v1.domain.product.AccountDesignators;
 import io.mifos.individuallending.api.v1.domain.product.ProductParameters;
 import io.mifos.portfolio.api.v1.client.PortfolioManager;
 import io.mifos.portfolio.api.v1.client.ProductDefinitionIncomplete;
@@ -45,28 +46,54 @@ import org.junit.runner.RunWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.test.context.junit4.SpringRunner;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.net.URL;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
-import static io.mifos.accounting.api.v1.EventConstants.POST_ACCOUNT;
-import static io.mifos.accounting.api.v1.EventConstants.POST_LEDGER;
 import static io.mifos.portfolio.api.v1.events.EventConstants.PUT_PRODUCT;
 import static java.math.BigDecimal.ROUND_HALF_EVEN;
 
 
+@SuppressWarnings("SpringAutowiredFieldsWarningInspection")
 @RunWith(SpringRunner.class)
 @SpringBootTest()
 public class IndividualLoanTransactionProcessing {
+  private static final String SCHEDULER_USER_NAME = "imhotep";
+  private static final String TEST_LOGGER = "test-logger";
+
+  private static final String INCOME_LEDGER_IDENTIFIER = "1000";
+  private static final String LOAN_INCOME_LEDGER_IDENTIFIER = "1100";
+  private static final String FEES_AND_CHARGES_LEDGER_IDENTIFIER = "1300";
+  private static final String ASSET_LEDGER_IDENTIFIER = "7000";
+  private static final String CASH_LEDGER_IDENTIFIER = "7300";
+  private static final String PENDING_DISBURSAL_LEDGER_IDENTIFIER = "7320";
+  private static final String CUSTOMER_LOAN_LEDGER_IDENTIFIER = "7353";
+  private static final String ACCRUED_INCOME_LEDGER_IDENTIFIER = "7800";
+
+  private static final String LOAN_FUNDS_SOURCE_ACCOUNT_IDENTIFIER = "7310";
+  private static final String LOAN_ORIGINATION_FEES_ACCOUNT_IDENTIFIER = "1310";
+  private static final String PROCESSING_FEE_INCOME_ACCOUNT_IDENTIFIER = "1312";
+  private static final String DISBURSEMENT_FEE_INCOME_ACCOUNT_IDENTIFIER = "1313";
+  private static final String TELLER_ONE_ACCOUNT_IDENTIFIER = "7352";
+  private static final String LOAN_INTEREST_ACCRUAL_ACCOUNT_IDENTIFIER = "7810";
+  private static final String CONSUMER_LOAN_INTEREST_ACCOUNT_IDENTIFIER = "1103";
+  private static final String LOANS_PAYABLE_ACCOUNT_IDENTIFIER ="missingInChartOfAccounts";
+  private static final String LATE_FEE_INCOME_ACCOUNT_IDENTIFIER = "001-008"; //TODO: ??
+  private static final String LATE_FEE_ACCRUAL_ACCOUNT_IDENTIFIER = "001-009"; //TODO: ??
+  private static final String ARREARS_ALLOWANCE_ACCOUNT_IDENTIFIER = "001-010"; //TODO: ??
+
   @Configuration
   @ActiveMQForTest.EnableActiveMQListen
   @EnableApiFactory
@@ -76,9 +103,9 @@ public class IndividualLoanTransactionProcessing {
       super();
     }
 
-    @Bean()
+    @Bean(name= TEST_LOGGER)
     public Logger logger() {
-      return LoggerFactory.getLogger("test-logger");
+      return LoggerFactory.getLogger(TEST_LOGGER);
     }
   }
 
@@ -90,7 +117,10 @@ public class IndividualLoanTransactionProcessing {
   private final static IntegrationTestEnvironment integrationTestEnvironment = new IntegrationTestEnvironment(cassandraInitializer, mariaDBInitializer);
 
   private final static InitializedMicroservice<LedgerManager> thoth = new InitializedMicroservice<>(LedgerManager.class, "accounting", "0.1.0-BUILD-SNAPSHOT", integrationTestEnvironment);
-  private final static InitializedMicroservice<PortfolioManager> bastet= new InitializedMicroservice<>(PortfolioManager.class, "portfolio", "0.1.0-BUILD-SNAPSHOT", integrationTestEnvironment);
+  private final static InitializedMicroservice<PortfolioManager> bastet= new InitializedMicroservice<>(PortfolioManager.class, "portfolio", "0.1.0-BUILD-SNAPSHOT", integrationTestEnvironment)
+      .addProperties(new ExtraProperties() {{
+        setProperty("portfolio.bookInterestAsUser", SCHEDULER_USER_NAME);
+      }});
 
   @ClassRule
   public static TestRule orderedRules = RuleChain
@@ -108,6 +138,10 @@ public class IndividualLoanTransactionProcessing {
   @Autowired
   protected EventRecorder eventRecorder;
 
+  @Autowired
+  @Qualifier(TEST_LOGGER)
+  protected Logger logger;
+
   public IndividualLoanTransactionProcessing() {
     super();
   }
@@ -122,6 +156,21 @@ public class IndividualLoanTransactionProcessing {
   @Test
   public void test() throws InterruptedException {
     try (final AutoUserContext ignored = integrationTestEnvironment.createAutoUserContext("blah")) {
+
+      try {
+        final LedgerImporter ledgerImporter = new LedgerImporter(thoth.api(), logger);
+        final URL ledgersUrl = ClassLoader.getSystemResource("standardChartOfAccounts/ledgers.csv");
+        Assert.assertNotNull(ledgersUrl);
+        ledgerImporter.importCSV(ledgersUrl);
+
+        final AccountImporter accountImporter = new AccountImporter(thoth.api(), logger);
+        final URL accountsUrl = ClassLoader.getSystemResource("standardChartOfAccounts/accounts.csv");
+        Assert.assertNotNull(accountsUrl);
+        accountImporter.importCSV(accountsUrl);
+      } catch (IOException e) {
+        Assert.fail("Failed to import chart of accounts.");
+      }
+
       final List<Pattern> patterns = bastet.api().getAllPatterns();
       Assert.assertTrue(patterns != null);
       Assert.assertTrue(patterns.size() >= 1);
@@ -144,50 +193,25 @@ public class IndividualLoanTransactionProcessing {
 
       final Product changedProduct = bastet.api().getProduct(product.getIdentifier());
 
-      final Ledger ledger = defineLedger(thoth.getProcessEnvironment().generateUniqueIdentifer("001-", 3));
-      thoth.api().createLedger(ledger);
-      Assert.assertTrue(this.eventRecorder.wait(POST_LEDGER, ledger.getIdentifier()));
-
-      final Set<AccountAssignment> accountAssignments = incompleteAccountAssignments.stream()
-              .map(x -> new AccountAssignment(x.getDesignator(), createAccount(ledger).getIdentifier()))
-              .collect(Collectors.toSet());
-      for (final AccountAssignment accountAssignment : accountAssignments) {
-        Assert.assertTrue(this.eventRecorder.wait(POST_ACCOUNT, accountAssignment.getAccountIdentifier()));
-      }
+      final Set<AccountAssignment> accountAssignments = new HashSet<>();
+      accountAssignments.add(new AccountAssignment(AccountDesignators.PENDING_DISBURSAL, PENDING_DISBURSAL_LEDGER_IDENTIFIER));
+      accountAssignments.add(new AccountAssignment(AccountDesignators.PROCESSING_FEE_INCOME, PROCESSING_FEE_INCOME_ACCOUNT_IDENTIFIER));
+      accountAssignments.add(new AccountAssignment(AccountDesignators.ORIGINATION_FEE_INCOME, LOAN_ORIGINATION_FEES_ACCOUNT_IDENTIFIER));
+      accountAssignments.add(new AccountAssignment(AccountDesignators.DISBURSEMENT_FEE_INCOME, DISBURSEMENT_FEE_INCOME_ACCOUNT_IDENTIFIER));
+      accountAssignments.add(new AccountAssignment(AccountDesignators.INTEREST_INCOME, CONSUMER_LOAN_INTEREST_ACCOUNT_IDENTIFIER));
+      accountAssignments.add(new AccountAssignment(AccountDesignators.INTEREST_ACCRUAL, LOAN_INTEREST_ACCRUAL_ACCOUNT_IDENTIFIER));
+      accountAssignments.add(new AccountAssignment(AccountDesignators.LOANS_PAYABLE, LOANS_PAYABLE_ACCOUNT_IDENTIFIER));
+      accountAssignments.add(new AccountAssignment(AccountDesignators.LATE_FEE_INCOME, LATE_FEE_INCOME_ACCOUNT_IDENTIFIER));
+      accountAssignments.add(new AccountAssignment(AccountDesignators.LATE_FEE_ACCRUAL, LATE_FEE_ACCRUAL_ACCOUNT_IDENTIFIER));
+      accountAssignments.add(new AccountAssignment(AccountDesignators.ARREARS_ALLOWANCE, ARREARS_ALLOWANCE_ACCOUNT_IDENTIFIER));
+      accountAssignments.add(new AccountAssignment(AccountDesignators.LOAN_FUNDS_SOURCE, LOAN_FUNDS_SOURCE_ACCOUNT_IDENTIFIER));
+      accountAssignments.add(new AccountAssignment(AccountDesignators.CUSTOMER_LOAN, CUSTOMER_LOAN_LEDGER_IDENTIFIER));
+      // Don't assign entry account in test since it usually will not be assigned IRL.
       changedProduct.setAccountAssignments(accountAssignments);
 
       bastet.api().changeProduct(changedProduct.getIdentifier(), changedProduct);
       Assert.assertTrue(this.eventRecorder.wait(PUT_PRODUCT, changedProduct.getIdentifier()));
     }
-  }
-
-  private Account createAccount(final Ledger ledger) {
-    final Account account = defineAccount(ledger.getIdentifier(), thoth.getProcessEnvironment().generateUniqueIdentifer("001-", 3));
-
-    thoth.api().createAccount(account);
-    return account;
-  }
-
-  private Ledger defineLedger(final String identifier)
-  {
-    final Ledger ledger = new Ledger();
-    ledger.setIdentifier(identifier);
-    ledger.setName("Anyname");
-    ledger.setDescription("Anydescription");
-    ledger.setType(AccountType.ASSET.name());
-    return ledger;
-  }
-
-  private Account defineAccount(final String ledgerIdentifier, final String identifier)
-  {
-    final Account account = new Account();
-    account.setIdentifier(identifier);
-    account.setLedger(ledgerIdentifier);
-    account.setHolders(Collections.singleton("humptyDumpty"));
-    account.setState(Account.State.OPEN.name());
-    account.setType(AccountType.ASSET.name());
-    account.setBalance(0d);
-    return account;
   }
 
   private Product defineProductWithoutAccountAssignments(final String patternPackage, final String identifier) {
