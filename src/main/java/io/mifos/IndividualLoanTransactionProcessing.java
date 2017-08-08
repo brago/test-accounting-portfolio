@@ -63,7 +63,6 @@ import java.util.List;
 import java.util.Set;
 
 import static io.mifos.portfolio.api.v1.events.EventConstants.PUT_PRODUCT;
-import static java.math.BigDecimal.ROUND_HALF_EVEN;
 
 
 @SuppressWarnings("SpringAutowiredFieldsWarningInspection")
@@ -222,7 +221,7 @@ public class IndividualLoanTransactionProcessing {
     product.setName("Agricultural Loan");
     product.setDescription("Loan for seeds or agricultural equipment");
     product.setTermRange(new TermRange(ChronoUnit.MONTHS, 12));
-    product.setBalanceRange(new BalanceRange(fixScale(BigDecimal.ZERO), fixScale(new BigDecimal(10000))));
+    product.setBalanceRange(new BalanceRange(BigDecimal.ZERO, new BigDecimal(10000)));
     product.setInterestBasis(InterestBasis.CURRENT_BALANCE);
 
     product.setCurrencyCode("XXX");
@@ -240,8 +239,4 @@ public class IndividualLoanTransactionProcessing {
     return product;
   }
 
-  static public BigDecimal fixScale(final BigDecimal bigDecimal)
-  {
-    return bigDecimal.setScale(4, ROUND_HALF_EVEN);
-  }
 }
