@@ -57,4 +57,14 @@ public class AccountingEventListener {
                             final String payload) {
     this.eventRecorder.event(tenant, EventConstants.POST_ACCOUNT, payload, String.class);
   }
+
+  @JmsListener(
+      destination = EventConstants.DESTINATION,
+      selector = EventConstants.SELECTOR_RELEASE_JOURNAL_ENTRY,
+      subscription = EventConstants.DESTINATION
+  )
+  public void onJournalEntryProcessed(@Header(TenantHeaderFilter.TENANT_HEADER) final String tenant,
+                                      final String transactionIdentifier) {
+    this.eventRecorder.event(tenant, EventConstants.RELEASE_JOURNAL_ENTRY, transactionIdentifier, String.class);
+  }
 }
