@@ -21,6 +21,7 @@ ext.versions = [
         frameworktest           : '0.1.0-BUILD-SNAPSHOT',
         frameworkapi            : '0.1.0-BUILD-SNAPSHOT',
         mifosaccounting         : '0.1.0-BUILD-SNAPSHOT',
+        mifosrhythm             : '0.1.0-BUILD-SNAPSHOT',
         defaultsetup            : '0.1.0-BUILD-SNAPSHOT',
         mifosportfolio          : '0.1.0-BUILD-SNAPSHOT',
         validator               : '5.3.0.Final',
@@ -58,6 +59,7 @@ dependencies {
     compile(
             [group: 'com.google.code.findbugs', name: 'jsr305'],
             [group: 'org.springframework.cloud', name: 'spring-cloud-starter-eureka-server'],
+            [group: 'io.mifos.rhythm', name: 'spi', version: versions.mifosrhythm],
             [group: 'io.mifos.accounting', name: 'api', version: versions.mifosaccounting],
             [group: 'io.mifos.accounting', name: 'importer', version: versions.mifosaccounting],
             [group: 'io.mifos.portfolio', name: 'api', version: versions.mifosportfolio],
